@@ -393,7 +393,7 @@ if(!file.exists("mitch_P1vPA.html")) {
 }
 
 if(!file.exists("mitch_multi.html")) {
-  mitch_report(res=mres3,outfile="mitch_multi.html")
+  mitch_report(res=mmres,outfile="mitch_multi.html")
 }
 
 ```
