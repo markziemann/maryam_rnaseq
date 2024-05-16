@@ -1,0 +1,407 @@
+---
+title: "Effect of antimicrobial peptides on cancer cells"
+author: "Mark Ziemann"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    code_folding: hide
+    fig_width: 7
+    fig_height: 7
+theme: cosmo
+---
+
+Source: TBA
+
+## Introduction
+
+Here we analyse the effect of two antimicrobial peptides on cancer cells.
+
+Reads were mapped to the human transcriptome version 46 from GENCODE genes (gencode.v46.transcripts.fa).
+
+Genes with mean counts > 10 are classified as detected.
+
+Differential expression is conducted with DESeq2.
+
+Pathway enrichment analysis is conducted with mitch.
+
+Gene sets were obtained from the gene ontology database (q3 2023). Biological process sets were used.
+
+```{r,packages}
+
+suppressPackageStartupMessages({
+    library("zoo")
+    library("dplyr")
+    library("reshape2")
+    library("DESeq2")
+    library("gplots")
+    library("MASS")
+    library("mitch")
+    library("eulerr")
+    library("kableExtra")
+})
+
+```
+
+## Import read counts
+
+```{r,importdata1}
+
+tmp <- read.table("3col.tsv.gz",header=F)
+x <- as.matrix(acast(tmp, V2~V1, value.var="V3", fun.aggregate = sum))
+x <- as.data.frame(x)
+accession <- sapply((strsplit(rownames(x),"\\|")),"[[",2)
+symbol<-sapply((strsplit(rownames(x),"\\|")),"[[",6)
+x$geneid <- paste(accession,symbol)
+xx <- aggregate(. ~ geneid,x,sum)
+rownames(xx) <- xx$geneid
+xx$geneid = NULL
+xx <- round(xx)
+head(xx)
+
+```
+
+## Sample sheet
+
+```{r,ss1}
+
+ss <- data.frame(colnames(xx))
+ss$P1 <- as.numeric(grepl("P1",ss[,1]))
+ss$PA <- as.numeric(grepl("PA",ss[,1]))
+rownames(ss) <- ss[,1]
+ss[,1] = NULL
+ss
+
+```
+
+
+## QC analysis
+
+Here I'll look at a few different quality control measures.
+
+```{r,qc1,fig.height=7,fig.width=7}
+
+par(mar=c(5,8,3,1))
+barplot(colSums(xx),horiz=TRUE,las=1,xlab="num reads")
+
+```
+
+## MDS plot
+
+All samples have sufficient number of reads.
+
+All sample cluster with others from the same group.
+
+P1-3 could be an outlier.
+
+```{r,mds1}
+
+cols <- c(rep("lightgreen",3),rep("lightblue",3),rep("pink",3))
+
+plot(cmdscale(dist(t(xx))), xlab="Coordinate 1", ylab="Coordinate 2",
+  type = "p",bty="n",pch=19, cex=4, col=cols)
+
+text(cmdscale(dist(t(xx))), labels=colnames(xx) )
+
+```
+
+## Correlation heatmap
+
+```{r,cor,fig.height=7,fig.width=7}
+
+heatmap.2(cor(xx),trace="n",main="Pearson correlation heatmap")
+
+```
+
+## Separate data by peptide
+
+Also a good point to filter out any genes with low expression (average < 10 counts).
+
+```{r,sep1}
+
+ss1 <- ss[grep("PA",rownames(ss),invert=TRUE),]
+xx1 <- xx[,which(colnames(xx) %in% rownames(ss1))]
+xx1 <- xx1[which(rowMeans(xx1)>10),]
+dim(xx1)
+
+ss2 <- ss[grep("P1",rownames(ss),invert=TRUE),]
+xx2 <- xx[,which(colnames(xx) %in% rownames(ss2))]
+xx2 <- xx2[which(rowMeans(xx2)>10),]
+dim(xx2)
+
+ss3 <- ss[grep("control",rownames(ss),invert=TRUE),]
+xx3 <- xx[,which(colnames(xx) %in% rownames(ss3))]
+xx3 <- xx3[which(rowMeans(xx3)>10),]
+dim(xx3)
+
+```
+
+## Analysis of differential gene expression
+
+First we will look at control vs P1.
+
+```{r,dge1}
+
+dds <- DESeqDataSetFromMatrix(countData = xx1 , colData = ss1, design = ~ P1 )
+res <- DESeq(dds)
+z<- results(res)
+vsd <- vst(dds, blind=FALSE)
+zz <- cbind(as.data.frame(z),assay(vsd))
+dge <- as.data.frame(zz[order(zz$pvalue),])
+head(dge,20) %>% kbl(caption = "Top gene expression changes caused by P1") %>% kable_paper("hover", full_width = F)
+dge1 <- dge
+write.table(dge1,file="deseq2_P1.tsv",quote=FALSE,sep='\t')
+
+```
+
+Now look at control vs PA.
+
+```{r,dge2}
+
+dds <- DESeqDataSetFromMatrix(countData = xx2 , colData = ss2, design = ~ PA )
+res <- DESeq(dds)
+z<- results(res)
+vsd <- vst(dds, blind=FALSE)
+zz <- cbind(as.data.frame(z),assay(vsd))
+dge <- as.data.frame(zz[order(zz$pvalue),])
+head(dge,20) %>% kbl(caption = "Top gene expression changes caused by PA") %>% kable_paper("hover", full_width = F)
+dge2 <- dge
+write.table(dge2,file="deseq2_PA.tsv",quote=FALSE,sep='\t')
+
+```
+
+Now look at P1 (ctrl) vs PA (trt).
+
+```{r,dge3}
+
+dds <- DESeqDataSetFromMatrix(countData = xx3 , colData = ss3, design = ~ PA )
+res <- DESeq(dds)
+z<- results(res)
+vsd <- vst(dds, blind=FALSE)
+zz <- cbind(as.data.frame(z),assay(vsd))
+dge <- as.data.frame(zz[order(zz$pvalue),])
+head(dge,20) %>% kbl(caption = "Top gene expression differences between P1 (ctrl) and PA (trt)") %>% kable_paper("hover", full_width = F)
+dge3 <- dge
+write.table(dge1,file="deseq2_PA.tsv",quote=FALSE,sep='\t')
+
+```
+
+## Make some  plots.
+
+```{r,plots1}
+
+maplot <- function(de,contrast_name) {
+  sig <-subset(de, padj < 0.05 )
+  up <-rownames(subset(de, padj < 0.05 & log2FoldChange > 0))
+  dn <-rownames(subset(de, padj < 0.05 & log2FoldChange < 0))
+  GENESUP <- length(up)
+  GENESDN <- length(dn)
+  DET=nrow(de)
+  SUBHEADER = paste(GENESUP, "up, ", GENESDN, "down", DET, "detected")
+  ns <-subset(de, padj > 0.05 )
+  plot(log2(de$baseMean),de$log2FoldChange, 
+       xlab="log2 basemean", ylab="log2 foldchange",
+       pch=19, cex=0.5, col="dark gray",
+       main=contrast_name, cex.main=1)
+  points(log2(sig$baseMean),sig$log2FoldChange,
+         pch=19, cex=0.5, col="red")
+  mtext(SUBHEADER,cex = 1)
+}
+
+make_volcano <- function(de,name) {
+    sig <- subset(de,padj<0.05)
+    N_SIG=nrow(sig)
+    N_UP=nrow(subset(sig,log2FoldChange>0))
+    N_DN=nrow(subset(sig,log2FoldChange<0))
+    DET=nrow(de)
+    HEADER=paste(N_SIG,"@5%FDR,", N_UP, "up", N_DN, "dn", DET, "detected")
+    plot(de$log2FoldChange,-log10(de$pval),cex=0.5,pch=19,col="darkgray",
+        main=name, xlab="log2 FC", ylab="-log10 pval", xlim=c(-6,6))
+    mtext(HEADER)
+    grid()
+    points(sig$log2FoldChange,-log10(sig$pval),cex=0.5,pch=19,col="red")
+}
+
+make_heatmap <- function(de,name,myss,mx,n=30){
+  colfunc <- colorRampPalette(c("blue", "white", "red"))
+  values <- myss$quickdash
+  f <- colorRamp(c("yellow", "orange"))
+  rr <- range(values)
+  svals <- (values-rr[1])/diff(rr)
+  colcols <- rgb(f(svals)/255)
+  mxn <- mx/rowSums(mx)*1000000
+  x <- mxn[which(rownames(mxn) %in% rownames(head(de,n))),]
+  heatmap.2(as.matrix(x),trace="none",col=colfunc(25),scale="row", margins = c(7,15), cexRow=0.9, cexCol=1.4,
+    main=paste("Top ranked",n,"genes in",name) )
+}
+
+maplot(dge1,"ctrl vs P1")
+make_volcano(dge1,"ctrl vs P1")
+make_heatmap(dge1,"ctrl vs P1",ss1,xx1,n=30)
+
+maplot(dge2,"ctrl vs PA")
+make_volcano(dge2,"ctrl vs PA")
+make_heatmap(dge2,"ctrl vs PA",ss2,xx2,n=30)
+
+maplot(dge3,"P1 vs PA")
+make_volcano(dge3,"P1 vs PA")
+make_heatmap(dge3,"P1 vs PA",ss3,xx3,n=30)
+
+```
+
+## Pathway enrichment
+
+Here I'm using the mitch package and gene pathways from Reactome to understand the affected pathways separately for each tissue type.
+
+Gene ontology terms obtained from GO website and converted to list format, downloaded in Feb 2024 (GO_bp_2023q4.Rds).
+
+First look at P1.
+
+```{r,mitch1}
+
+go <- readRDS("GO_bp_2023q4.Rds")
+go <- go[which(lapply(go,length)>4)]
+gobp <- go[grep(" BP ",names(go))]
+length(gobp)
+
+
+gt <- as.data.frame(rownames(xx))
+gt$gene <- sapply(strsplit(gt[,1]," "),"[[",2)
+head(gt)
+
+m1 <- mitch_import(dge1, DEtype="deseq2",geneTable=gt)
+mres1 <- mitch_calc(m1, gobp, priority="effect",cores=16)
+
+head(mres1$enrichment_result,20) %>%
+  kbl(caption = "Top gene pathway differences caused by P1") %>%
+  kable_paper("hover", full_width = F)
+
+write.table(mres1$enrichment_result,file="mitch_P1.tsv",quote=FALSE,sep='\t')
+
+par(mar=c(5,27,3,3))
+
+top <- mres1$enrichment_result
+top <- subset(top,p.adjustANOVA<0.05)
+nrow(top)
+up <- head(subset(top,s.dist>0),20)
+dn <- head(subset(top,s.dist<0),20)
+top <- rbind(up,dn)
+vec=top$s.dist
+names(vec)=top$set
+names(vec) <- gsub("_"," ",names(vec))
+vec <- vec[order(vec)]
+barplot(abs(vec),col=sign(-vec)+3,horiz=TRUE,las=1,cex.names=0.65,main="Ctrl vs P1",xlab="ES")
+grid()
+
+```
+
+Now look at PA.
+
+```{r,mitch2}
+
+m2 <- mitch_import(dge2, DEtype="deseq2",geneTable=gt)
+mres2 <- mitch_calc(m2, gobp, priority="effect",cores=16)
+
+head(mres2$enrichment_result,20) %>%
+  kbl(caption = "Top gene pathway differences caused by PA") %>%
+  kable_paper("hover", full_width = F)
+
+write.table(mres2$enrichment_result,file="mitch_PA.tsv",quote=FALSE,sep='\t')
+
+par(mar=c(5,27,3,3))
+
+top <- mres2$enrichment_result
+top <- subset(top,p.adjustANOVA<0.05)
+nrow(top)
+up <- head(subset(top,s.dist>0),20)
+dn <- head(subset(top,s.dist<0),20)
+top <- rbind(up,dn)
+vec=top$s.dist
+names(vec)=top$set
+names(vec) <- gsub("_"," ",names(vec))
+vec <- vec[order(vec)]
+barplot(abs(vec),col=sign(-vec)+3,horiz=TRUE,las=1,cex.names=0.65,main="Ctrl vs PA",xlab="ES")
+grid()
+
+```
+
+Now compare P1 (ctrl) vs PA (trt).
+
+```{r,mitch3}
+
+m3 <- mitch_import(dge3, DEtype="deseq2",geneTable=gt)
+mres3 <- mitch_calc(m3, gobp, priority="effect",cores=16)
+
+head(mres3$enrichment_result,20) %>%
+  kbl(caption = "Top gene pathway differences between P1 (ctrl) vs PA (trt)") %>%
+  kable_paper("hover", full_width = F)
+
+write.table(mres3$enrichment_result,file="mitch_P1vsPA.tsv",quote=FALSE,sep='\t')
+
+par(mar=c(5,27,3,3))
+
+top <- mres3$enrichment_result
+top <- subset(top,p.adjustANOVA<0.05)
+nrow(top)
+up <- head(subset(top,s.dist>0),20)
+dn <- head(subset(top,s.dist<0),20)
+top <- rbind(up,dn)
+vec=top$s.dist
+names(vec)=top$set
+names(vec) <- gsub("_"," ",names(vec))
+vec <- vec[order(vec)]
+barplot(abs(vec),col=sign(-vec)+3,horiz=TRUE,las=1,cex.names=0.65,main="P1 vs PA",xlab="ES")
+grid()
+
+```
+
+## 2D Pathway enrichment
+
+This is a unique feature of mitch package that allows us to look at enrichment in two contrasts.
+
+```{r,mitch2d}
+
+l <- list("CTL_v_P1"=dge1,"CTL_v_PA"=dge2)
+mm <- mitch_import(l, DEtype="deseq2",geneTable=gt)
+head(mm)
+
+mmres <- mitch_calc(mm, gobp, priority="effect",cores=16)
+
+head(mmres$enrichment_result,20) %>%
+  kbl(caption = "Top pathways for P1 and PA vs control") %>%
+  kable_paper("hover", full_width = F)
+
+write.table(mmres$enrichment_result,file="mitch_multi.tsv",quote=FALSE,sep='\t')
+
+```
+
+## Generate detailed HTML reports
+
+```{r,mitchreports}
+
+if(!file.exists("mitch_CTLvP1.html")) {
+  mitch_report(res=mres1,outfile="mitch_CTLvP1.html")
+}
+
+if(!file.exists("mitch_CTLvPA.html")) {
+  mitch_report(res=mres2,outfile="mitch_CTLvPA.html")
+}
+
+if(!file.exists("mitch_P1vPA.html")) {
+  mitch_report(res=mres3,outfile="mitch_P1vPA.html")
+}
+
+if(!file.exists("mitch_multi.html")) {
+  mitch_report(res=mres3,outfile="mitch_multi.html")
+}
+
+```
+
+## Session information
+
+```{r,save}
+
+sessionInfo()
+
+```
