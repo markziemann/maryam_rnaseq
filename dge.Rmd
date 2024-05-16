@@ -183,7 +183,7 @@ zz <- cbind(as.data.frame(z),assay(vsd))
 dge <- as.data.frame(zz[order(zz$pvalue),])
 head(dge,20) %>% kbl(caption = "Top gene expression differences between P1 (ctrl) and PA (trt)") %>% kable_paper("hover", full_width = F)
 dge3 <- dge
-write.table(dge1,file="deseq2_PA.tsv",quote=FALSE,sep='\t')
+write.table(dge3,file="deseq3_P1vsPA.tsv",quote=FALSE,sep='\t')
 
 ```
 
