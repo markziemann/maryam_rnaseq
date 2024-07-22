@@ -85,6 +85,8 @@ Here I'll look at a few different quality control measures.
 par(mar=c(5,8,3,1))
 barplot(colSums(xx),horiz=TRUE,las=1,xlab="num reads")
 
+colSums(xx)
+
 ```
 
 ## MDS plot
@@ -111,6 +113,10 @@ text(cmdscale(dist(t(xx))), labels=colnames(xx) )
 ```{r,cor,fig.height=7,fig.width=7}
 
 heatmap.2(cor(xx),trace="n",main="Pearson correlation heatmap")
+
+cor(xx) %>% kbl(caption = "Pearson correlation coefficients") %>% kable_paper("hover", full_width = F)
+
+cor(xx,method="spearman") %>% kbl(caption = "Spearman correlation coefficients") %>% kable_paper("hover", full_width = F)
 
 ```
 
@@ -395,6 +401,40 @@ if(!file.exists("mitch_P1vPA.html")) {
 if(!file.exists("mitch_multi.html")) {
   mitch_report(res=mmres,outfile="mitch_multi.html")
 }
+
+```
+
+## Venn diagrams
+
+Gene level.
+
+```{r,genevenn}
+
+dge1_up <- rownames(subset(dge1,padj<0.05 & log2FoldChange>0))
+dge1_dn <- rownames(subset(dge1,padj<0.05 & log2FoldChange<0))
+
+dge2_up <- rownames(subset(dge2,padj<0.05 & log2FoldChange>0))
+dge2_dn <- rownames(subset(dge2,padj<0.05 & log2FoldChange<0))
+
+v1 <- list("P1 up"=dge1_up,"P1 dn"=dge1_dn,"PA up"=dge2_up,"PA dn"=dge2_dn)
+
+plot(euler(v1),quantities = TRUE, main="Gene level")
+
+```
+
+Pathway level.
+
+```{r,pwvenn}
+
+m1up <- subset(mres1$enrichment_result,p.adjustANOVA < 0.05 & s.dist > 0)$set
+m1dn <- subset(mres1$enrichment_result,p.adjustANOVA < 0.05 & s.dist < 0)$set
+
+m2up <- subset(mres2$enrichment_result,p.adjustANOVA < 0.05 & s.dist > 0)$set
+m2dn <- subset(mres2$enrichment_result,p.adjustANOVA < 0.05 & s.dist < 0)$set
+
+v1 <- list("P1 up"=m1up,"P1 dn"=m1dn,"PA up"=m2up,"PA dn"=m2dn)
+
+plot(euler(v1),quantities = TRUE, main="Pathway level")
 
 ```
 
